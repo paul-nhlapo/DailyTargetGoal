@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { addMinutes, differenceInMinutes, format, isWithinInterval, parseISO, areIntervalsOverlapping } from 'date-fns'
 import { z } from 'zod'
 import { hasSupabaseEnv } from '@/lib/env'
-import { getTodayDeals } from '@/lib/deals'
+import { getDailyReward, getStreakBonus, getMotivationalTip } from '@/lib/rewards'
+import { requestNotificationPermission, scheduleTaskNotification } from '@/lib/notifications'
 
 const Task = z.object({
   id: z.string(),
@@ -40,6 +41,8 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
   const [focusMode, setFocusMode] = useState(false)
   const [interferences, setInterferences] = useState<{id: string, start: string, end?: string, reason: string}[]>([])
   const [activeInterference, setActiveInterference] = useState<string | null>(null)
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false)
+  const notificationTimers = useRef<Map<string, NodeJS.Timeout>>(new Map())
 
   const start = parseISO(startIso)
   const end = parseISO(endIso)
@@ -163,6 +166,42 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
 
   useEffect(() => { load() }, [])
 
+  // Request notification permission on mount
+  useEffect(() => {
+    requestNotificationPermission().then(granted => {
+      setNotificationsEnabled(granted)
+    })
+  }, [])
+
+  // Schedule notifications for tasks
+  useEffect(() => {
+    if (!notificationsEnabled) return
+
+    // Clear existing timers
+    notificationTimers.current.forEach(timer => clearTimeout(timer))
+    notificationTimers.current.clear()
+
+    // Schedule notifications for upcoming tasks
+    tasks.forEach(task => {
+      if (task.start_time && !task.completed) {
+        const startTime = parseISO(task.start_time)
+        
+        // Schedule 5 min before
+        const timer5 = scheduleTaskNotification(task.title, startTime, 5)
+        if (timer5) notificationTimers.current.set(`${task.id}-5`, timer5)
+        
+        // Schedule at start time
+        const timer0 = scheduleTaskNotification(task.title, startTime, 0)
+        if (timer0) notificationTimers.current.set(`${task.id}-0`, timer0)
+      }
+    })
+
+    return () => {
+      notificationTimers.current.forEach(timer => clearTimeout(timer))
+      notificationTimers.current.clear()
+    }
+  }, [tasks, notificationsEnabled])
+
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date())
@@ -282,15 +321,15 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
     }
     
     if (!t.completed) {
-      // Fetch live deals from API
+      // Fetch real scraped deals
       fetch('/api/deals')
         .then(res => res.json())
         .then(data => {
-          setRewardDeals(data.deals)
+          setRewardDeals(data.deals || [])
           setShowReward(true)
         })
         .catch(() => {
-          setRewardDeals(getTodayDeals())
+          setRewardDeals([])
           setShowReward(true)
         })
     }
@@ -425,16 +464,34 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
               )}
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-sm text-slate-400">Free Time</div>
-            <div className="text-xl font-bold text-green-400">
-              {(() => {
-                const scheduled = tasks.filter(t => t.start_time && t.end_time && !t.completed)
-                  .reduce((acc, t) => acc + differenceInMinutes(parseISO(t.end_time!), parseISO(t.start_time!)), 0)
-                const total = differenceInMinutes(end, start)
-                const free = total - scheduled
-                return `${Math.floor(free / 60)}h ${free % 60}m`
-              })()}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={async () => {
+                const granted = await requestNotificationPermission()
+                setNotificationsEnabled(granted)
+                if (!granted) {
+                  alert('Please enable notifications in your browser settings to receive task reminders.')
+                }
+              }}
+              className={`btn text-sm ${
+                notificationsEnabled 
+                  ? 'bg-green-600 hover:bg-green-500' 
+                  : 'bg-slate-700 hover:bg-slate-600'
+              }`}
+            >
+              {notificationsEnabled ? '🔔 Notifications On' : '🔕 Enable Notifications'}
+            </button>
+            <div className="text-right">
+              <div className="text-sm text-slate-400">Free Time</div>
+              <div className="text-xl font-bold text-green-400">
+                {(() => {
+                  const scheduled = tasks.filter(t => t.start_time && t.end_time && !t.completed)
+                    .reduce((acc, t) => acc + differenceInMinutes(parseISO(t.end_time!), parseISO(t.start_time!)), 0)
+                  const total = differenceInMinutes(end, start)
+                  const free = total - scheduled
+                  return `${Math.floor(free / 60)}h ${free % 60}m`
+                })()}
+              </div>
             </div>
           </div>
         </div>
@@ -595,34 +652,70 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
       {showReward && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowReward(false)}>
           <div className="bg-slate-900 border-2 border-green-500 rounded-lg p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <div className="text-center mb-4">
-              <div className="text-6xl mb-2">🎉</div>
-              <h2 className="text-2xl font-bold text-green-400 mb-2">Task Completed!</h2>
-              <p className="text-slate-300">Great job! Here's your reward - exclusive deals just for you:</p>
-            </div>
-            <div className="space-y-3 mb-4">
-              {rewardDeals.map((deal, i) => (
-                <a 
-                  key={i}
-                  href={deal.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="block p-3 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 hover:border-green-500 transition-all"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-3xl">{deal.emoji}</span>
-                    <div className="flex-1">
-                      <div className="font-semibold text-green-400">{deal.store}</div>
-                      <div className="text-sm text-slate-400">{deal.category}</div>
-                      {deal.discount && <div className="text-xs text-amber-400 mt-1">🏷️ {deal.discount}</div>}
+            {(() => {
+              const reward = getDailyReward()
+              const completedToday = tasks.filter(t => t.completed).length
+              const streak = getStreakBonus(completedToday)
+              const tip = getMotivationalTip()
+              
+              return (
+                <>
+                  <div className="text-center mb-4">
+                    <div className="text-5xl mb-2">{reward.emoji}</div>
+                    <h2 className="text-xl font-bold text-green-400 mb-1">{reward.title}</h2>
+                    <p className="text-sm text-slate-300 mb-2">{reward.message}</p>
+                    <div className={`bg-gradient-to-r ${reward.color} border border-green-500/30 rounded-lg p-3 mb-3`}>
+                      <p className="text-xs italic text-slate-200">"{reward.quote}"</p>
                     </div>
                   </div>
-                </a>
-              ))}
-            </div>
-            <button className="btn w-full bg-green-600 hover:bg-green-500" onClick={() => setShowReward(false)}>
-              Close & Keep Working! 💪
-            </button>
+                  
+                  {streak && (
+                    <div className="bg-gradient-to-r from-orange-900/50 to-red-900/50 border border-orange-500 rounded-lg p-2 mb-3">
+                      <div className="text-center">
+                        <div className="text-sm font-bold text-orange-300">{streak.title}</div>
+                        <div className="text-xs text-slate-300">{streak.message}</div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="mb-3">
+                    <div className="text-xs font-semibold text-slate-400 mb-2 text-center">🎁 Your Rewards (Real Deals):</div>
+                    <div className="space-y-2">
+                      {rewardDeals.length > 0 ? (
+                        rewardDeals.slice(0, 3).map((deal, i) => (
+                          <a 
+                            key={i}
+                            href={deal.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="block p-2 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 hover:border-green-500 transition-all"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl">{deal.emoji}</span>
+                              <div className="flex-1">
+                                <div className="text-sm font-semibold text-green-400">{deal.store}</div>
+                                <div className="text-xs text-slate-300">{deal.product || 'Special Deal'}</div>
+                                <div className="text-xs text-amber-400">{deal.discount}</div>
+                              </div>
+                            </div>
+                          </a>
+                        ))
+                      ) : (
+                        <div className="text-xs text-slate-400 text-center p-2">Loading deals...</div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="bg-slate-800/50 rounded-lg p-2 mb-3">
+                    <p className="text-xs text-slate-300 text-center">{tip}</p>
+                  </div>
+                  
+                  <button className="btn w-full bg-green-600 hover:bg-green-500 text-sm py-2" onClick={() => setShowReward(false)}>
+                    Continue Crushing It! 💪
+                  </button>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}

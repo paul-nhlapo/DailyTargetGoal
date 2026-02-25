@@ -1,51 +1,96 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 
-// Real deals data - updated regularly
-const LIVE_DEALS = {
-  monday: [
-    { store: 'Takealot', category: 'Tech Deals', discount: 'Up to 50% off', url: 'https://www.takealot.com/deals', emoji: '💻' },
-    { store: 'OneDayOnly', category: 'Daily Specials', discount: '70% off selected items', url: 'https://www.onedayonly.co.za', emoji: '🔥' },
-    { store: 'Evetech', category: 'Gaming Gear', discount: 'R500 off gaming PCs', url: 'https://www.evetech.co.za/specials', emoji: '🎮' },
-  ],
-  tuesday: [
-    { store: 'Netflorist', category: 'Wellness', discount: '20% off spa vouchers', url: 'https://www.netflorist.co.za', emoji: '🌸' },
-    { store: 'Dis-Chem', category: 'Health & Beauty', discount: 'Buy 2 Get 1 Free', url: 'https://www.dischem.co.za/specials', emoji: '💄' },
-    { store: 'Wellness Warehouse', category: 'Supplements', discount: '30% off vitamins', url: 'https://www.wellness.co.za', emoji: '🧘' },
-  ],
-  wednesday: [
-    { store: 'Superbalist', category: 'Fashion', discount: 'Extra 20% off sale', url: 'https://www.superbalist.com/sale', emoji: '👗' },
-    { store: 'Zando', category: 'Clothing', discount: 'Up to 60% off', url: 'https://www.zando.co.za/sale', emoji: '👠' },
-    { store: 'Bash', category: 'Streetwear', discount: 'R200 off R1000+', url: 'https://www.bash.com', emoji: '👕' },
-  ],
-  thursday: [
-    { store: 'Yuppiechef', category: 'Kitchen', discount: '25% off cookware', url: 'https://www.yuppiechef.com/sale', emoji: '🍳' },
-    { store: 'Takealot Home', category: 'Home Decor', discount: 'Up to 40% off', url: 'https://www.takealot.com/home-garden', emoji: '🏠' },
-    { store: 'Superbalist Home', category: 'Furniture', discount: 'Free delivery R450+', url: 'https://www.superbalist.com/home', emoji: '🛋️' },
-  ],
-  friday: [
-    { store: 'Uber Eats', category: 'Food Delivery', discount: 'R50 off first order', url: 'https://www.ubereats.com/za', emoji: '🍕' },
-    { store: 'Mr D Food', category: 'Restaurants', discount: 'Free delivery', url: 'https://www.mrddelivery.com', emoji: '🍔' },
-    { store: 'Checkers Sixty60', category: 'Groceries', discount: 'R100 off R500+', url: 'https://www.sixty60.co.za', emoji: '🛒' },
-  ],
-  saturday: [
-    { store: 'Ster-Kinekor', category: 'Movies', discount: 'R50 tickets', url: 'https://www.sterkinekor.com', emoji: '🍿' },
-    { store: 'Webtickets', category: 'Events', discount: '2-for-1 shows', url: 'https://www.webtickets.co.za', emoji: '🎭' },
-    { store: 'Platteland', category: 'Outdoor', discount: '15% off camping gear', url: 'https://www.platteland.co.za', emoji: '🏕️' },
-  ],
-  sunday: [
-    { store: 'Exclusive Books', category: 'Books', discount: '3 for 2 on bestsellers', url: 'https://www.exclusivebooks.co.za', emoji: '📚' },
-    { store: 'Takealot Books', category: 'Reading', discount: 'Up to 30% off', url: 'https://www.takealot.com/books', emoji: '📖' },
-    { store: 'Audible', category: 'Audiobooks', discount: 'First month free', url: 'https://www.audible.com', emoji: '🎧' },
-  ],
+export const dynamic = 'force-dynamic'
+
+// Get deals from database (pre-populated, rotates daily)
+export async function GET() {
+  try {
+    const supabase = await createClient()
+    const today = new Date().getDay() // 0=Sunday, 6=Saturday
+    
+    // Get deals for today or generic deals (day_of_week is null)
+    const { data: deals, error } = await supabase
+      .from('deals')
+      .select('*')
+      .or(`day_of_week.eq.${today},day_of_week.is.null`)
+      .gt('expires_at', new Date().toISOString())
+      .order('priority', { ascending: false })
+      .limit(5)
+    
+    if (error) throw error
+    
+    // If no deals in DB, return fallback
+    if (!deals || deals.length === 0) {
+      return NextResponse.json({
+        deals: getFallbackDeals(),
+        source: 'fallback',
+        updated: new Date().toISOString()
+      })
+    }
+    
+    return NextResponse.json({
+      deals: deals.map(d => ({
+        store: d.store,
+        product: d.product,
+        discount: d.discount,
+        price: d.price,
+        url: d.url,
+        emoji: d.emoji
+      })),
+      source: 'database',
+      updated: new Date().toISOString()
+    })
+  } catch (error) {
+    console.error('Deals fetch error:', error)
+    
+    return NextResponse.json({
+      deals: getFallbackDeals(),
+      source: 'fallback',
+      updated: new Date().toISOString()
+    })
+  }
 }
 
-export async function GET() {
-  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-  const today = days[new Date().getDay()] as keyof typeof LIVE_DEALS
+function getFallbackDeals() {
+  const today = new Date().getDay()
+  const themedDeals = [
+    [ // Sunday - Food & Groceries
+      { store: 'Woolworths', product: 'Gourmet Meal Kit', discount: '30% OFF', price: 'R149', url: 'https://woolworths.co.za', emoji: '🍽️' },
+      { store: 'Pick n Pay', product: 'Fresh Produce Box', discount: 'R50 OFF', price: 'R99', url: 'https://pnp.co.za', emoji: '🥗' },
+      { store: 'Checkers', product: 'Wine Special', discount: '40% OFF', price: 'R89', url: 'https://checkers.co.za', emoji: '🍷' },
+    ],
+    [ // Monday - Tech & Gadgets
+      { store: 'Takealot', product: 'Wireless Earbuds', discount: '40% OFF', price: 'R299', url: 'https://takealot.com', emoji: '🎧' },
+      { store: 'Incredible Connection', product: 'Gaming Mouse', discount: '35% OFF', price: 'R399', url: 'https://ic.co.za', emoji: '🖱️' },
+      { store: 'Evetech', product: 'Mechanical Keyboard', discount: '25% OFF', price: 'R899', url: 'https://evetech.co.za', emoji: '⌨️' },
+    ],
+    [ // Tuesday - Fashion & Apparel
+      { store: 'Superbalist', product: 'Designer Sneakers', discount: '50% OFF', price: 'R599', url: 'https://superbalist.com', emoji: '👟' },
+      { store: 'Zando', product: 'Summer Dresses', discount: '40% OFF', price: 'R299', url: 'https://zando.co.za', emoji: '👗' },
+      { store: 'Cotton On', product: 'Casual Wear Bundle', discount: '3 for R300', price: 'R300', url: 'https://cottonon.com', emoji: '👕' },
+    ],
+    [ // Wednesday - Health & Wellness
+      { store: 'Dis-Chem', product: 'Vitamin Bundle', discount: '25% OFF', price: 'R199', url: 'https://dischem.co.za', emoji: '💊' },
+      { store: 'Clicks', product: 'Skincare Set', discount: '30% OFF', price: 'R249', url: 'https://clicks.co.za', emoji: '🧴' },
+      { store: 'Sportscene', product: 'Yoga Mat + Blocks', discount: '40% OFF', price: 'R299', url: 'https://sportscene.co.za', emoji: '🧘' },
+    ],
+    [ // Thursday - Home & Living
+      { store: 'Makro', product: 'Coffee Machine', discount: '30% OFF', price: 'R1,499', url: 'https://makro.co.za', emoji: '☕' },
+      { store: 'Game', product: 'Bedding Set', discount: '40% OFF', price: 'R599', url: 'https://game.co.za', emoji: '🛏️' },
+      { store: 'Takealot', product: 'Air Fryer', discount: '35% OFF', price: 'R899', url: 'https://takealot.com', emoji: '🍳' },
+    ],
+    [ // Friday - Entertainment & Leisure
+      { store: 'OneDayOnly', product: 'Bluetooth Speaker', discount: '50% OFF', price: 'R499', url: 'https://onedayonly.co.za', emoji: '🔊' },
+      { store: 'Takealot', product: 'Board Games Bundle', discount: '30% OFF', price: 'R399', url: 'https://takealot.com', emoji: '🎲' },
+      { store: 'Game', product: 'Camping Gear', discount: '40% OFF', price: 'R799', url: 'https://game.co.za', emoji: '⛺' },
+    ],
+    [ // Saturday - Sports & Fitness
+      { store: 'Sportscene', product: 'Running Shoes', discount: '45% OFF', price: 'R699', url: 'https://sportscene.co.za', emoji: '🏃' },
+      { store: 'Totalsports', product: 'Gym Bag + Bottle', discount: '35% OFF', price: 'R299', url: 'https://totalsports.co.za', emoji: '🏀' },
+      { store: 'Mr Price Sport', product: 'Activewear Set', discount: '40% OFF', price: 'R399', url: 'https://mrpricesport.com', emoji: '🏋️' },
+    ],
+  ]
   
-  return NextResponse.json({
-    day: today,
-    deals: LIVE_DEALS[today],
-    updated: new Date().toISOString(),
-  })
+  return themedDeals[today] || themedDeals[1]
 }
