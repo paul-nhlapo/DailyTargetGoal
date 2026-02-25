@@ -1,4 +1,105 @@
-# Changelog - Elite Productivity Update
+# Changelog
+
+## Version 2.1.0 - Configurable Work Hours
+
+**Release Date:** 2024
+
+### 🎉 New Feature: Customizable Work Hours
+
+**The Problem Solved:** Users were locked to a fixed 4 AM - 8 PM (16-hour) schedule, which doesn't fit everyone's lifestyle.
+
+**The Solution:** Users can now configure their daily work window with custom start time and duration.
+
+#### Implementation Details
+
+**New Database Table:**
+```sql
+user_preferences (
+  id uuid PRIMARY KEY,
+  user_id uuid UNIQUE,
+  work_start_hour integer DEFAULT 4,
+  work_duration_hours integer DEFAULT 16,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+```
+
+**New Pages:**
+- `/settings` - Configure work hours
+- Settings accessible via ⚙️ button on Today page
+
+**Configuration Options:**
+- **Start Time:** Any hour (12 AM - 11 PM)
+- **Duration:** 8-24 hours
+- **Visual preview** of work window
+- **Overnight support** (e.g., 10 PM - 6 AM)
+
+**User Impact:**
+- Match your natural rhythm (early bird vs night owl)
+- Set realistic work hours
+- Better work-life balance
+- Improved focus during peak hours
+
+#### Files Added
+1. `app/settings/page.tsx` - Settings page
+2. `components/settings-form.tsx` - Settings form component
+3. `supabase/migration_add_user_preferences.sql` - Migration SQL
+4. `CONFIGURABLE_HOURS_GUIDE.md` - Complete documentation
+5. `CONFIGURABLE_HOURS_SUMMARY.md` - Implementation summary
+
+#### Files Modified
+1. `app/today/page.tsx` - Fetches and uses user preferences
+2. `supabase/schema.sql` - Added user_preferences table
+3. `types/db.ts` - Added user_preferences type
+4. `README.md` - Updated with new feature
+
+#### Migration Instructions
+
+**For New Installations:**
+Just run `supabase/schema.sql` - includes everything.
+
+**For Existing Installations:**
+1. Go to Supabase SQL Editor
+2. Run `supabase/migration_add_user_preferences.sql`
+3. Verify: `SELECT * FROM user_preferences;`
+
+#### Common Configurations
+
+| Profile | Start | Duration | Window |
+|---------|-------|----------|--------|
+| Early Bird | 5 AM | 16h | 5 AM → 9 PM |
+| Standard | 8 AM | 10h | 8 AM → 6 PM |
+| Extended | 8 AM | 14h | 8 AM → 10 PM |
+| Night Owl | 10 AM | 16h | 10 AM → 2 AM |
+| Focused | 9 AM | 9h | 9 AM → 6 PM |
+
+#### Technical Details
+
+**Default Behavior:**
+- New users: 4 AM start, 16-hour duration
+- Existing users: Preferences auto-created on first settings visit
+- Demo mode: Uses hardcoded defaults
+
+**Window Calculation:**
+```typescript
+const dayStart = new Date()
+dayStart.setHours(workStartHour, 0, 0, 0)
+
+if (now.getHours() < workStartHour) {
+  dayStart.setDate(dayStart.getDate() - 1)
+}
+
+const dayEnd = addHours(dayStart, workDurationHours)
+```
+
+**Overnight Windows:**
+Fully supported. If window crosses midnight (e.g., 10 PM - 6 AM), the app handles it automatically.
+
+#### Breaking Changes
+
+**None.** Fully backward compatible. Existing users get default settings automatically.
+
+---
 
 ## Version 2.0.0 - Elite Productivity Release
 
