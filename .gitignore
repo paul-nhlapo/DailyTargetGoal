@@ -9,7 +9,6 @@
 # next.js
 /.next/
 /out/
-/next-env.d.ts
 
 # production
 /build
@@ -17,4 +16,8 @@
 # misc
 .DS_Store
 *.log
-.env*
+.env*.local
+.env.local
+
+# vercel
+.vercel
