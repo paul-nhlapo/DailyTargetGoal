@@ -37,6 +37,9 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activePomodoro, setActivePomodoro] = useState<string | null>(null)
   const [pomodoroTime, setPomodoroTime] = useState(0)
+  const [focusMode, setFocusMode] = useState(false)
+  const [interferences, setInterferences] = useState<{id: string, start: string, end?: string, reason: string}[]>([])
+  const [activeInterference, setActiveInterference] = useState<string | null>(null)
 
   const start = parseISO(startIso)
   const end = parseISO(endIso)
@@ -105,6 +108,46 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
     }
     const { data, error } = await supabase.from('tasks').update(patch).eq('id', tid).select('*').single()
     if (!error && data) setTasks(prev => prev.map(t => t.id === tid ? data as Task : t))
+  }
+
+  // Auto-Ripple: Shift all subsequent tasks when one overruns
+  function autoRipple(changedTask: Task, newEndTime: Date) {
+    const sortedTasks = tasks
+      .filter(t => t.start_time && t.end_time && !t.completed)
+      .sort((a, b) => parseISO(a.start_time!).getTime() - parseISO(b.start_time!).getTime())
+    
+    const changedIndex = sortedTasks.findIndex(t => t.id === changedTask.id)
+    if (changedIndex === -1) return
+
+    const overrun = differenceInMinutes(newEndTime, parseISO(changedTask.end_time!))
+    if (overrun <= 0) return
+
+    // Shift all subsequent tasks
+    for (let i = changedIndex + 1; i < sortedTasks.length; i++) {
+      const task = sortedTasks[i]
+      const newStart = addMinutes(parseISO(task.start_time!), overrun)
+      const newEnd = addMinutes(parseISO(task.end_time!), overrun)
+      updateTask(task.id, { 
+        start_time: clampToWindow(newStart).toISOString(), 
+        end_time: clampToWindow(newEnd).toISOString() 
+      })
+    }
+  }
+
+  // Interference tracking
+  function startInterference() {
+    const id = crypto.randomUUID()
+    const newInterference = { id, start: new Date().toISOString(), reason: '' }
+    setInterferences(prev => [...prev, newInterference])
+    setActiveInterference(id)
+  }
+
+  function endInterference(reason: string) {
+    if (!activeInterference) return
+    setInterferences(prev => prev.map(i => 
+      i.id === activeInterference ? { ...i, end: new Date().toISOString(), reason } : i
+    ))
+    setActiveInterference(null)
   }
 
   async function removeTask(tid: string) {
@@ -262,10 +305,111 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
     const duration = differenceInMinutes(parseISO(t.end_time), parseISO(t.start_time))
     setActivePomodoro(t.id)
     setPomodoroTime(duration * 60)
+    setFocusMode(true)
+  }
+
+  // Get current task based on time
+  const currentTask = useMemo(() => {
+    const now = currentTime
+    return tasks.find(t => {
+      if (!t.start_time || !t.end_time || t.completed) return false
+      const start = parseISO(t.start_time)
+      const end = parseISO(t.end_time)
+      return now >= start && now <= end
+    })
+  }, [tasks, currentTime])
+
+  // Calculate total interference time
+  const totalInterferenceMinutes = useMemo(() => {
+    return interferences.reduce((acc, i) => {
+      if (!i.end) return acc
+      return acc + differenceInMinutes(parseISO(i.end), parseISO(i.start))
+    }, 0)
+  }, [interferences])
+
+  // Focus Mode View
+  if (focusMode && currentTask) {
+    const taskEnd = parseISO(currentTask.end_time!)
+    const remainingSeconds = Math.max(0, Math.floor((taskEnd.getTime() - currentTime.getTime()) / 1000))
+    const remainingMinutes = Math.floor(remainingSeconds / 60)
+    const remainingSecondsDisplay = remainingSeconds % 60
+
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="text-center max-w-2xl px-6">
+          <button 
+            onClick={() => setFocusMode(false)}
+            className="absolute top-4 right-4 btn bg-slate-700 hover:bg-slate-600 text-sm"
+          >
+            ✕ Exit Focus
+          </button>
+          
+          <div className="mb-8">
+            <div className="text-6xl mb-4">🎯</div>
+            <h1 className="text-5xl font-bold text-white mb-4">{currentTask.title}</h1>
+            <div className="text-xl text-purple-300">
+              {format(parseISO(currentTask.start_time!), 'p')} – {format(parseISO(currentTask.end_time!), 'p')}
+            </div>
+          </div>
+
+          <div className="bg-slate-900/50 border-4 border-purple-500 rounded-3xl p-12 mb-8">
+            <div className="text-9xl font-bold text-purple-300 mb-4">
+              {remainingMinutes}:{String(remainingSecondsDisplay).padStart(2, '0')}
+            </div>
+            <div className="text-2xl text-slate-400">Time Remaining</div>
+          </div>
+
+          <div className="flex gap-4 justify-center">
+            {!activeInterference ? (
+              <button 
+                onClick={startInterference}
+                className="btn bg-amber-600 hover:bg-amber-500 text-xl px-8 py-4"
+              >
+                ⏸️ Pause (Interference)
+              </button>
+            ) : (
+              <button 
+                onClick={() => {
+                  const reason = prompt('What interrupted you?') || 'Unplanned break'
+                  endInterference(reason)
+                }}
+                className="btn bg-green-600 hover:bg-green-500 text-xl px-8 py-4 animate-pulse"
+              >
+                ▶️ Resume
+              </button>
+            )}
+            <button 
+              onClick={() => toggleComplete(currentTask)}
+              className="btn bg-green-600 hover:bg-green-500 text-xl px-8 py-4"
+            >
+              ✓ Complete Task
+              </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="grid gap-4">
+      {/* Focus Mode Toggle */}
+      {currentTask && (
+        <div className="card bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-purple-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-slate-400">Current Task</div>
+              <div className="text-xl font-bold text-purple-300">{currentTask.title}</div>
+            </div>
+            <button 
+              onClick={() => setFocusMode(true)}
+              className="btn bg-purple-600 hover:bg-purple-500 text-lg px-6 py-3"
+            >
+              🎯 Enter Focus Mode
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Window Countdown & Stats */}
       <div className="card bg-gradient-to-r from-purple-900/50 to-blue-900/50 border-purple-500">
         <div className="flex items-center justify-between mb-3">
@@ -301,6 +445,50 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
           />
         </div>
       </div>
+
+      {/* Reality Audit - Interference Tracking */}
+      {(interferences.length > 0 || activeInterference) && (
+        <div className="card bg-gradient-to-r from-amber-900/50 to-orange-900/50 border-amber-500">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-sm text-slate-400">Reality Audit</div>
+              <div className="text-xl font-bold text-amber-300">
+                {totalInterferenceMinutes}m lost to interruptions
+              </div>
+            </div>
+            {!activeInterference ? (
+              <button 
+                onClick={startInterference}
+                className="btn bg-amber-600 hover:bg-amber-500"
+              >
+                ⏸️ Log Interference
+              </button>
+            ) : (
+              <button 
+                onClick={() => {
+                  const reason = prompt('What interrupted you?') || 'Unplanned break'
+                  endInterference(reason)
+                }}
+                className="btn bg-green-600 hover:bg-green-500 animate-pulse"
+              >
+                ▶️ End Interference
+              </button>
+            )}
+          </div>
+          {interferences.filter(i => i.end).length > 0 && (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-slate-400 hover:text-slate-300">View interference log ({interferences.filter(i => i.end).length})</summary>
+              <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                {interferences.filter(i => i.end).map(i => (
+                  <div key={i.id} className="text-slate-400 bg-slate-800/50 p-2 rounded">
+                    <span className="text-amber-400">{differenceInMinutes(parseISO(i.end!), parseISO(i.start))}m</span> - {i.reason}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
 
       <form onSubmit={addTask} className="flex gap-2">
         <select 
@@ -373,9 +561,20 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
                         </div>
                       )}
                       <div className="flex gap-2 flex-wrap">
-                        {!activePomodoro && <button className="btn text-sm bg-purple-600 hover:bg-purple-500" onClick={() => startPomodoro(t)} type="button">⏱️ Start Pomodoro</button>}
+                        {!activePomodoro && <button className="btn text-sm bg-purple-600 hover:bg-purple-500" onClick={() => startPomodoro(t)} type="button">⏱️ Focus Mode</button>}
                         <button className="btn text-sm" onClick={() => bump(t, -15)} type="button">⏪ -15m</button>
                         <button className="btn text-sm" onClick={() => bump(t, 15)} type="button">+15m ⏩</button>
+                        <button 
+                          className="btn text-sm bg-blue-600 hover:bg-blue-500" 
+                          onClick={() => {
+                            const newEnd = addMinutes(parseISO(t.end_time!), 15)
+                            autoRipple(t, newEnd)
+                            updateTask(t.id, { end_time: newEnd.toISOString() })
+                          }} 
+                          type="button"
+                        >
+                          🔄 +15m & Ripple
+                        </button>
                         <button className="btn text-sm bg-purple-600 hover:bg-purple-500" onClick={() => openTimeEditor(t)} type="button">✏️ Edit Time</button>
                         <button className="btn text-sm bg-slate-700" onClick={() => updateTask(t.id, { start_time: null, end_time: null })} type="button">Clear Time</button>
                       </div>

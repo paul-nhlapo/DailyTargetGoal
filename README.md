@@ -19,8 +19,17 @@ All bugs fixed, documentation complete, ready to deploy in ~12 minutes.
 ## Features
 - Supabase Auth (email/password) with session persistence
 - 16-hour Today view with task CRUD
+- **🔄 Auto-Ripple Logic** - Automatic schedule adjustment when tasks overrun
+- **🎯 Focus Mode** - Distraction-free single-task view with countdown timer
+- **⏸️ Interference Tracking** - Reality audit showing where your time actually goes
 - Supabase-only (Auth + DB). No Google dependencies.
 - Deployable on Vercel
+
+### 🚀 Elite Productivity Features
+See **[ELITE_FEATURES.md](ELITE_FEATURES.md)** for detailed guide on:
+- Auto-Ripple: Eliminate broken schedules
+- Focus Mode: Prevent cognitive leakage
+- Reality Audit: Honest time tracking
 
 Local Setup
 1) Copy .env.example to .env.local and fill values:

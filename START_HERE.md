@@ -87,8 +87,13 @@ Your app now has:
 - ✅ 16-hour daily task window
 - ✅ Create, edit, delete tasks
 - ✅ Time-based scheduling
+- ✅ **🔄 Auto-Ripple Logic** - Automatic schedule adjustment when tasks overrun
+- ✅ **🎯 Focus Mode** - Distraction-free single-task view with countdown timer
+- ✅ **⏸️ Interference Tracking** - Reality audit showing where your time actually goes
 - ✅ Responsive design
 - ✅ Demo mode (works without Supabase)
+
+**New to Elite Features?** See [ELITE_FEATURES.md](ELITE_FEATURES.md) for comprehensive guide.
 
 ---
 
