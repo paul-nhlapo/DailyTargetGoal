@@ -13,7 +13,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const demo = !hasSupabaseEnv()
   let user: any = null
   if (!demo) {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data } = await supabase.auth.getUser()
     user = data.user
   }
@@ -28,15 +28,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               {!demo && user ? (
                 <>
                   <Link className="text-sm text-slate-300 hover:text-white" href="/today">Today</Link>
+                  <Link className="text-sm text-slate-300 hover:text-white" href="/analytics">Analytics</Link>
                   <form action="/auth/signout" method="post">
                     <button className="btn" type="submit">Sign out</button>
                   </form>
                 </>
               ) : (
-                <>
-                  <Link className="text-sm text-slate-300 hover:text-white" href="/today">Today</Link>
-                  <Link className="btn" href="/login">Login</Link>
-                </>
+                <Link className="btn" href="/login">Login</Link>
               )}
             </nav>
           </div>

@@ -2,17 +2,21 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { addMinutes, differenceInMinutes, format, isWithinInterval, parseISO } from 'date-fns'
+import { addMinutes, differenceInMinutes, format, isWithinInterval, parseISO, areIntervalsOverlapping } from 'date-fns'
 import { z } from 'zod'
 import { hasSupabaseEnv } from '@/lib/env'
+import { getTodayDeals } from '@/lib/deals'
 
 const Task = z.object({
   id: z.string(),
   user_id: z.string(),
   title: z.string(),
   notes: z.string().nullable(),
+  category: z.string().optional(),
   start_time: z.string().nullable(),
   end_time: z.string().nullable(),
+  completed: z.boolean(),
+  completed_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
   })
@@ -24,6 +28,15 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
   const [tasks, setTasks] = useState<Task[]>([])
   const [title, setTitle] = useState('')
   const [loading, setLoading] = useState(true)
+  const [showReward, setShowReward] = useState(false)
+  const [rewardDeals, setRewardDeals] = useState<any[]>([])
+  const [editingTime, setEditingTime] = useState<string | null>(null)
+  const [timeStart, setTimeStart] = useState('')
+  const [timeDuration, setTimeDuration] = useState('30')
+  const [taskCategory, setTaskCategory] = useState('Other')
+  const [currentTime, setCurrentTime] = useState(new Date())
+  const [activePomodoro, setActivePomodoro] = useState<string | null>(null)
+  const [pomodoroTime, setPomodoroTime] = useState(0)
 
   const start = parseISO(startIso)
   const end = parseISO(endIso)
@@ -54,8 +67,11 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
         user_id: 'demo-user',
         title,
         notes: null,
+        category: taskCategory,
         start_time: null,
         end_time: null,
+        completed: false,
+        completed_at: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         }
@@ -65,8 +81,18 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
       setTitle('')
       return
     }
-    const { data, error } = await supabase.from('tasks').insert({ title }).select('*').single()
-    if (!error && data) setTasks(prev => [data as Task, ...prev])
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      alert('You must be logged in to add tasks')
+      return
+    }
+    const { data, error } = await supabase.from('tasks').insert({ title, category: taskCategory, user_id: user.id }).select('*').single()
+    if (error) {
+      console.error('Error adding task:', error)
+      alert('Error adding task: ' + error.message)
+      return
+    }
+    if (data) setTasks(prev => [data as Task, ...prev])
     setTitle('')
   }
 
@@ -94,6 +120,22 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
 
   useEffect(() => { load() }, [])
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+      if (activePomodoro) {
+        setPomodoroTime(prev => {
+          if (prev <= 0) {
+            setActivePomodoro(null)
+            return 0
+          }
+          return prev - 1
+        })
+      }
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [activePomodoro])
+
   // Helpers
   function withinWindow(t: Task) {
     if (!t.start_time || !t.end_time) return true
@@ -117,9 +159,162 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
     updateTask(t.id, { start_time: ns.toISOString(), end_time: ne.toISOString() })
   }
 
+  function setTime(t: Task) {
+    if (!t.start_time) {
+      const now = new Date()
+      const s = clampToWindow(now)
+      const e = clampToWindow(addMinutes(s, 30))
+      
+      // Check for conflicts
+      const hasConflict = tasks.some(other => {
+        if (other.id === t.id || !other.start_time || !other.end_time) return false
+        return areIntervalsOverlapping(
+          { start: s, end: e },
+          { start: parseISO(other.start_time), end: parseISO(other.end_time) }
+        )
+      })
+      
+      if (hasConflict) {
+        alert('⚠️ Time conflict! This time overlaps with another task. Please adjust other tasks first.')
+        return
+      }
+      
+      updateTask(t.id, { start_time: s.toISOString(), end_time: e.toISOString() })
+    }
+  }
+
+  function openTimeEditor(t: Task) {
+    setEditingTime(t.id)
+    if (t.start_time) {
+      const s = parseISO(t.start_time)
+      setTimeStart(format(s, 'HH:mm'))
+      setTimeDuration(String(differenceInMinutes(parseISO(t.end_time!), s)))
+    } else {
+      setTimeStart(format(new Date(), 'HH:mm'))
+      setTimeDuration('30')
+    }
+  }
+
+  function saveTime() {
+    if (!editingTime) return
+    const [hours, minutes] = timeStart.split(':').map(Number)
+    const today = new Date()
+    today.setHours(hours, minutes, 0, 0)
+    
+    const s = clampToWindow(today)
+    const e = clampToWindow(addMinutes(s, parseInt(timeDuration)))
+    
+    // Check for conflicts
+    const hasConflict = tasks.some(other => {
+      if (other.id === editingTime || !other.start_time || !other.end_time) return false
+      return areIntervalsOverlapping(
+        { start: s, end: e },
+        { start: parseISO(other.start_time), end: parseISO(other.end_time) }
+      )
+    })
+    
+    if (hasConflict) {
+      alert('⚠️ Time conflict! This time overlaps with another task.')
+      return
+    }
+    
+    updateTask(editingTime, { start_time: s.toISOString(), end_time: e.toISOString() })
+    setEditingTime(null)
+  }
+
+  function toggleComplete(t: Task) {
+    // Check if task has time set
+    if (!t.start_time || !t.end_time) {
+      alert('⚠️ Please set a time for this task before marking it complete!')
+      return
+    }
+    
+    // Check if current time is within or after task time
+    const taskStart = parseISO(t.start_time)
+    const taskEnd = parseISO(t.end_time)
+    
+    if (!t.completed && currentTime < taskStart) {
+      alert(`⏰ You can only complete this task after ${format(taskStart, 'p')}!\n\nStay focused on your schedule! 💪`)
+      return
+    }
+    
+    if (!t.completed) {
+      // Fetch live deals from API
+      fetch('/api/deals')
+        .then(res => res.json())
+        .then(data => {
+          setRewardDeals(data.deals)
+          setShowReward(true)
+        })
+        .catch(() => {
+          setRewardDeals(getTodayDeals())
+          setShowReward(true)
+        })
+    }
+    updateTask(t.id, { 
+      completed: !t.completed, 
+      completed_at: !t.completed ? new Date().toISOString() : null 
+    })
+  }
+
+  function startPomodoro(t: Task) {
+    if (!t.start_time || !t.end_time) return
+    const duration = differenceInMinutes(parseISO(t.end_time), parseISO(t.start_time))
+    setActivePomodoro(t.id)
+    setPomodoroTime(duration * 60)
+  }
+
   return (
     <div className="grid gap-4">
+      {/* Window Countdown & Stats */}
+      <div className="card bg-gradient-to-r from-purple-900/50 to-blue-900/50 border-purple-500">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-sm text-slate-400">16-Hour Window</div>
+            <div className="text-2xl font-bold text-purple-300">
+              {currentTime < end ? (
+                <>
+                  {Math.floor(differenceInMinutes(end, currentTime) / 60)}h {differenceInMinutes(end, currentTime) % 60}m remaining
+                </>
+              ) : (
+                'Window Closed'
+              )}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm text-slate-400">Free Time</div>
+            <div className="text-xl font-bold text-green-400">
+              {(() => {
+                const scheduled = tasks.filter(t => t.start_time && t.end_time && !t.completed)
+                  .reduce((acc, t) => acc + differenceInMinutes(parseISO(t.end_time!), parseISO(t.start_time!)), 0)
+                const total = differenceInMinutes(end, start)
+                const free = total - scheduled
+                return `${Math.floor(free / 60)}h ${free % 60}m`
+              })()}
+            </div>
+          </div>
+        </div>
+        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div 
+            className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all"
+            style={{ width: `${Math.max(0, Math.min(100, (differenceInMinutes(currentTime, start) / differenceInMinutes(end, start)) * 100))}%` }}
+          />
+        </div>
+      </div>
+
       <form onSubmit={addTask} className="flex gap-2">
+        <select 
+          value={taskCategory} 
+          onChange={e => setTaskCategory(e.target.value)}
+          className="input w-32"
+        >
+          <option value="Work">💼 Work</option>
+          <option value="Personal">🏠 Personal</option>
+          <option value="Health">💪 Health</option>
+          <option value="Learning">📚 Learning</option>
+          <option value="Social">👥 Social</option>
+          <option value="Other">📌 Other</option>
+        </select>
         <input className="input" placeholder="New task title" value={title} onChange={e => setTitle(e.target.value)} />
         <button className="btn" type="submit">Add</button>
       </form>
@@ -127,26 +322,154 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
       {loading ? (
         <p className="text-slate-400">Loading...</p>
       ) : tasks.length === 0 ? (
-        <p className="text-slate-400">No tasks yet. Add one.</p>
+        <div className="text-center py-8">
+          <p className="text-slate-400 mb-2">No tasks yet. Add your first task above!</p>
+          <p className="text-sm text-slate-500">💡 Tip: After adding a task, click "Set Time" to schedule it</p>
+        </div>
       ) : (
-        <ul className="grid gap-2">
-          {tasks.filter(withinWindow).map(t => (
-            <li key={t.id} className="card flex items-start justify-between gap-3">
-              <div>
-                <div className="font-medium">{t.title}</div>
-                {t.start_time && t.end_time && (
-                  <div className="text-xs text-slate-400">{format(parseISO(t.start_time), 'p')} – {format(parseISO(t.end_time), 'p')}</div>
+        <>
+          <div className="text-sm text-slate-400 mb-2">
+            📋 {tasks.filter(t => !t.completed).length} active • {tasks.filter(t => t.completed).length} completed
+          </div>
+          <ul className="grid gap-3">
+            {tasks.filter(withinWindow).sort((a, b) => {
+              if (a.completed !== b.completed) return a.completed ? 1 : -1
+              if (!a.start_time) return 1
+              if (!b.start_time) return -1
+              return parseISO(a.start_time).getTime() - parseISO(b.start_time).getTime()
+            }).map(t => (
+              <li key={t.id} className={`card ${t.completed ? 'opacity-60 bg-slate-800/50' : ''}`}>
+                <div className="flex items-start gap-3 mb-3">
+                  <input 
+                    type="checkbox" 
+                    checked={t.completed} 
+                    onChange={() => toggleComplete(t)}
+                    className="mt-1 w-5 h-5 rounded border-slate-600 bg-slate-700 checked:bg-green-600"
+                  />
+                  <div className="flex-1">
+                    <div className={`font-medium text-lg ${t.completed ? 'line-through text-slate-500' : ''}`}>{t.title}</div>
+                    {t.start_time && t.end_time ? (
+                      <div className="text-sm text-green-400 mt-1">
+                        ⏰ {format(parseISO(t.start_time), 'p')} – {format(parseISO(t.end_time), 'p')} 
+                        <span className="text-slate-400 ml-2">({differenceInMinutes(parseISO(t.end_time), parseISO(t.start_time))} min)</span>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-amber-400 mt-1">⚠️ No time set</div>
+                    )}
+                  </div>
+                  <button className="btn bg-rose-600 hover:bg-rose-500 text-xs" onClick={() => removeTask(t.id)} type="button">Delete</button>
+                </div>
+                
+                {!t.completed && (
+                  t.start_time && t.end_time ? (
+                    <div className="space-y-2">
+                      {activePomodoro === t.id && (
+                        <div className="bg-purple-900/50 border border-purple-500 rounded p-3 text-center">
+                          <div className="text-2xl font-bold text-purple-300">
+                            {Math.floor(pomodoroTime / 60)}:{String(pomodoroTime % 60).padStart(2, '0')}
+                          </div>
+                          <div className="text-xs text-slate-400">Pomodoro Timer</div>
+                          <button className="btn text-xs mt-2 bg-red-600" onClick={() => setActivePomodoro(null)} type="button">Stop</button>
+                        </div>
+                      )}
+                      <div className="flex gap-2 flex-wrap">
+                        {!activePomodoro && <button className="btn text-sm bg-purple-600 hover:bg-purple-500" onClick={() => startPomodoro(t)} type="button">⏱️ Start Pomodoro</button>}
+                        <button className="btn text-sm" onClick={() => bump(t, -15)} type="button">⏪ -15m</button>
+                        <button className="btn text-sm" onClick={() => bump(t, 15)} type="button">+15m ⏩</button>
+                        <button className="btn text-sm bg-purple-600 hover:bg-purple-500" onClick={() => openTimeEditor(t)} type="button">✏️ Edit Time</button>
+                        <button className="btn text-sm bg-slate-700" onClick={() => updateTask(t.id, { start_time: null, end_time: null })} type="button">Clear Time</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button className="btn bg-green-600 hover:bg-green-500" onClick={() => setTime(t)} type="button">⏰ Quick Set (30 min)</button>
+                      <button className="btn bg-purple-600 hover:bg-purple-500" onClick={() => openTimeEditor(t)} type="button">✏️ Custom Time</button>
+                    </div>
+                  )
                 )}
-                {t.notes && <div className="text-sm text-slate-300 mt-1 whitespace-pre-wrap">{t.notes}</div>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {showReward && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowReward(false)}>
+          <div className="bg-slate-900 border-2 border-green-500 rounded-lg p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-4">
+              <div className="text-6xl mb-2">🎉</div>
+              <h2 className="text-2xl font-bold text-green-400 mb-2">Task Completed!</h2>
+              <p className="text-slate-300">Great job! Here's your reward - exclusive deals just for you:</p>
+            </div>
+            <div className="space-y-3 mb-4">
+              {rewardDeals.map((deal, i) => (
+                <a 
+                  key={i}
+                  href={deal.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="block p-3 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 hover:border-green-500 transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">{deal.emoji}</span>
+                    <div className="flex-1">
+                      <div className="font-semibold text-green-400">{deal.store}</div>
+                      <div className="text-sm text-slate-400">{deal.category}</div>
+                      {deal.discount && <div className="text-xs text-amber-400 mt-1">🏷️ {deal.discount}</div>}
+                    </div>
+                  </div>
+                </a>
+              ))}
+            </div>
+            <button className="btn w-full bg-green-600 hover:bg-green-500" onClick={() => setShowReward(false)}>
+              Close & Keep Working! 💪
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editingTime && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setEditingTime(null)}>
+          <div className="bg-slate-900 border-2 border-purple-500 rounded-lg p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-semibold mb-4">⏰ Set Task Time</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Start Time</label>
+                <input 
+                  type="time" 
+                  value={timeStart} 
+                  onChange={e => setTimeStart(e.target.value)}
+                  className="w-full rounded-md bg-slate-800 border-2 border-slate-700 px-4 py-3 text-lg text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Duration</label>
+                <select 
+                  value={timeDuration} 
+                  onChange={e => setTimeDuration(e.target.value)}
+                  className="w-full rounded-md bg-slate-800 border-2 border-slate-700 px-4 py-3 text-lg text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                >
+                  <option value="15">15 minutes</option>
+                  <option value="30">30 minutes</option>
+                  <option value="45">45 minutes</option>
+                  <option value="60">1 hour</option>
+                  <option value="90">1.5 hours</option>
+                  <option value="120">2 hours</option>
+                  <option value="180">3 hours</option>
+                  <option value="240">4 hours</option>
+                </select>
+              </div>
+              <div className="text-sm text-slate-400 bg-slate-800 p-3 rounded">
+                📅 Task will run from <span className="text-green-400 font-semibold">{timeStart || '--:--'}</span> for <span className="text-green-400 font-semibold">{timeDuration} minutes</span>
               </div>
               <div className="flex gap-2">
-                <button className="btn" onClick={() => bump(t, -15)} type="button">-15m</button>
-                <button className="btn" onClick={() => bump(t, 15)} type="button">+15m</button>
-                <button className="btn bg-rose-600 hover:bg-rose-500" onClick={() => removeTask(t.id)} type="button">Delete</button>
+                <button className="btn flex-1 bg-green-600 hover:bg-green-500 text-lg py-3" onClick={saveTime}>✓ Save Time</button>
+                <button className="btn flex-1 bg-slate-700 hover:bg-slate-600 text-lg py-3" onClick={() => setEditingTime(null)}>✕ Cancel</button>
               </div>
-            </li>
-          ))}
-        </ul>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

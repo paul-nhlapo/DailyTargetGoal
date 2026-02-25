@@ -2,7 +2,21 @@ Daily Target Goal
 
 A Next.js 14 + Supabase web app to timebox your day within a focused 16-hour window. Supabase-only: Auth + DB. No Google integration.
 
-Features
+## 🎉 PROJECT FIXED & READY!
+
+**👉 START HERE: [START_HERE.md](START_HERE.md)**
+
+All bugs fixed, documentation complete, ready to deploy in ~12 minutes.
+
+### Quick Links
+- ✅ **[QUICK_START.md](QUICK_START.md)** - Simple checklist (12 minutes)
+- 📖 **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Detailed instructions
+- 🔑 **[CREDENTIALS_GUIDE.md](CREDENTIALS_GUIDE.md)** - Get Supabase credentials
+- 🔧 **[FIXES_APPLIED.md](FIXES_APPLIED.md)** - Technical details
+
+---
+
+## Features
 - Supabase Auth (email/password) with session persistence
 - 16-hour Today view with task CRUD
 - Supabase-only (Auth + DB). No Google dependencies.

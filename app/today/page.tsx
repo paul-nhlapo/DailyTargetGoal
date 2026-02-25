@@ -1,19 +1,30 @@
 import { createClient } from '@/lib/supabase/server'
 import { hasSupabaseEnv } from '@/lib/env'
-import { startOfToday, addHours, formatISO, format } from 'date-fns'
-import Link from 'next/link'
+import { addHours, formatISO, format } from 'date-fns'
+import { redirect } from 'next/navigation'
 import { TodayTasks } from '@/components/today-tasks'
 
 export default async function TodayPage() {
   const demo = !hasSupabaseEnv()
   let user: any = null
+  
   if (!demo) {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data } = await supabase.auth.getUser()
     user = data.user
+    if (!user) redirect('/login')
   }
 
-  const dayStart = startOfToday()
+  // 16-hour window starts at 4 AM
+  const now = new Date()
+  const dayStart = new Date(now)
+  dayStart.setHours(4, 0, 0, 0)
+  
+  // If it's before 4 AM, use yesterday's 4 AM
+  if (now.getHours() < 4) {
+    dayStart.setDate(dayStart.getDate() - 1)
+  }
+  
   const dayEnd = addHours(dayStart, 16)
 
   return (
@@ -21,13 +32,6 @@ export default async function TodayPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Today - {format(dayStart, 'PPPP')}</h1>
       </div>
-
-      {!demo && !user && (
-        <div className="card">
-          <p className="mb-3">You are not signed in.</p>
-          <Link className="btn" href="/login">Login</Link>
-        </div>
-      )}
 
       <div className="grid md:grid-cols-3 gap-4">
         <div className="md:col-span-2 card">
