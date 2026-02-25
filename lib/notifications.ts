@@ -19,7 +19,6 @@ export function showTaskNotification(taskTitle: string, minutesBefore: number) {
       body: message,
       icon: '/favicon.ico',
       badge: '/favicon.ico',
-      vibrate: [200, 100, 200],
       requireInteraction: minutesBefore === 0,
       tag: `task-${taskTitle}-${minutesBefore}`
     })
