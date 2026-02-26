@@ -50,6 +50,7 @@ export function TodayTasks({ startIso, endIso, timeZone }: { startIso: string, e
   const [interferences, setInterferences] = useState<{id: string, start: string, end?: string, reason: string}[]>([])
   const [activeInterference, setActiveInterference] = useState<string | null>(null)
   const [notificationsEnabled, setNotificationsEnabled] = useState(false)
+  const [recentDeleted, setRecentDeleted] = useState<{ task: Task, timeoutId: NodeJS.Timeout } | null>(null)
   const notificationTimers = useRef<Map<string, NodeJS.Timeout>>(new Map())
   const windowRefreshTriggered = useRef(false)
 
@@ -231,14 +232,63 @@ export function TodayTasks({ startIso, endIso, timeZone }: { startIso: string, e
 
   async function removeTask(tid: string) {
     if (windowClosed) return
+    const target = tasks.find(t => t.id === tid)
+    if (!target) return
+    const confirmed = window.confirm(`Delete "${target.title}"? This can't be undone.`)
+    if (!confirmed) return
+
+    if (recentDeleted?.timeoutId) {
+      clearTimeout(recentDeleted.timeoutId)
+      setRecentDeleted(null)
+    }
+
     const prev = tasks
     setTasks(prev => prev.filter(t => t.id !== tid))
     if (demo) {
       localStorage.setItem('dtg_tasks', JSON.stringify(prev.filter(t => t.id !== tid)))
+      const timeoutId = setTimeout(() => setRecentDeleted(null), 6000)
+      setRecentDeleted({ task: target, timeoutId })
       return
     }
     const { error } = await supabase.from('tasks').delete().eq('id', tid)
     if (error) setTasks(prev)
+    const timeoutId = setTimeout(() => setRecentDeleted(null), 6000)
+    setRecentDeleted({ task: target, timeoutId })
+  }
+
+  async function undoDelete() {
+    if (!recentDeleted) return
+    const task = recentDeleted.task
+    clearTimeout(recentDeleted.timeoutId)
+    setRecentDeleted(null)
+
+    if (demo) {
+      const restored = [task, ...tasks]
+      setTasks(restored)
+      localStorage.setItem('dtg_tasks', JSON.stringify(restored))
+      return
+    }
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert({
+        title: task.title,
+        notes: task.notes,
+        category: task.category || 'Other',
+        start_time: task.start_time,
+        end_time: task.end_time,
+        completed: task.completed,
+        completed_at: task.completed_at,
+        window_date: task.window_date,
+        original_window_date: task.original_window_date,
+        deferred_to_date: task.deferred_to_date,
+        archived_at: task.archived_at,
+        user_id: task.user_id,
+      })
+      .select('*')
+      .single()
+    if (!error && data) {
+      setTasks(prev => [normalizeTask(data), ...prev])
+    }
   }
 
   useEffect(() => { load() }, [windowDate, weekStartDate, weekEndDate])
@@ -703,6 +753,18 @@ export function TodayTasks({ startIso, endIso, timeZone }: { startIso: string, e
           <div className="text-slate-400 text-xs mt-2">
             Next window starts {formatDateLong(nextWindowStart, timeZone)} {formatTimeShort(nextWindowStart, timeZone)}
           </div>
+        </div>
+      )}
+
+      {recentDeleted && (
+        <div className="card border-rose-500 bg-slate-900/60">
+          <div className="text-sm text-rose-300 mb-1">Task deleted</div>
+          <div className="text-slate-300 text-sm">
+            "{recentDeleted.task.title}" was deleted.
+          </div>
+          <button className="btn text-xs bg-slate-700 mt-2" onClick={undoDelete} type="button">
+            Undo
+          </button>
         </div>
       )}
 
