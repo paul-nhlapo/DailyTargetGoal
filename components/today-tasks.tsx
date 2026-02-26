@@ -44,6 +44,7 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activePomodoro, setActivePomodoro] = useState<string | null>(null)
   const [pomodoroTime, setPomodoroTime] = useState(0)
+  const [activeCountdownTaskId, setActiveCountdownTaskId] = useState<string | null>(null)
   const [focusMode, setFocusMode] = useState(false)
   const [interferences, setInterferences] = useState<{id: string, start: string, end?: string, reason: string}[]>([])
   const [activeInterference, setActiveInterference] = useState<string | null>(null)
@@ -295,6 +296,19 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
   }, [activePomodoro])
 
   useEffect(() => {
+    if (!activeCountdownTaskId) return
+    const activeTask = tasks.find(t => t.id === activeCountdownTaskId)
+    if (!activeTask || activeTask.completed || !activeTask.end_time) {
+      setActiveCountdownTaskId(null)
+      return
+    }
+    const endTime = parseISO(activeTask.end_time)
+    if (currentTime >= endTime) {
+      setActiveCountdownTaskId(null)
+    }
+  }, [activeCountdownTaskId, currentTime, tasks])
+
+  useEffect(() => {
     if (currentTime >= nextWindowStart && !windowRefreshTriggered.current) {
       windowRefreshTriggered.current = true
       router.refresh()
@@ -470,6 +484,16 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
     setFocusMode(true)
   }
 
+  function startTaskCountdown(t: Task) {
+    if (windowClosed) return
+    if (!t.start_time || !t.end_time || t.completed) return
+    setActiveCountdownTaskId(t.id)
+  }
+
+  function stopTaskCountdown() {
+    setActiveCountdownTaskId(null)
+  }
+
   // Get current task based on time
   const currentTask = useMemo(() => {
     const now = currentTime
@@ -481,6 +505,18 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
       return now >= start && now <= end
     })
   }, [tasks, currentTime, windowDate])
+
+  const activeCountdownTask = useMemo(() => {
+    if (!activeCountdownTaskId) return null
+    return tasks.find(t => t.id === activeCountdownTaskId) || null
+  }, [tasks, activeCountdownTaskId])
+
+  const activeCountdownSeconds = useMemo(() => {
+    if (!activeCountdownTask || !activeCountdownTask.end_time) return 0
+    const endTime = parseISO(activeCountdownTask.end_time)
+    const remaining = Math.floor((endTime.getTime() - currentTime.getTime()) / 1000)
+    return Math.max(0, remaining)
+  }, [activeCountdownTask, currentTime])
 
   // Calculate total interference time
   const totalInterferenceMinutes = useMemo(() => {
@@ -773,6 +809,11 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
                         ) : (
                           <div className="text-sm text-amber-400 mt-1">No time set</div>
                         )}
+                        {activeCountdownTaskId === t.id && t.end_time && (
+                          <div className="text-xs text-emerald-400 mt-1">
+                            Countdown: {Math.floor(activeCountdownSeconds / 60)}:{String(activeCountdownSeconds % 60).padStart(2, '0')}
+                          </div>
+                        )}
                       </div>
                       {!windowClosed && (
                         <button className="btn bg-rose-600 hover:bg-rose-500 text-xs" onClick={() => removeTask(t.id)} type="button">Delete</button>
@@ -793,6 +834,11 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
                           )}
                           <div className="flex gap-2 flex-wrap">
                             {!activePomodoro && <button className="btn text-sm bg-purple-600 hover:bg-purple-500" onClick={() => startPomodoro(t)} type="button">Focus Mode</button>}
+                            {activeCountdownTaskId === t.id ? (
+                              <button className="btn text-sm bg-slate-700" onClick={stopTaskCountdown} type="button">Stop</button>
+                            ) : (
+                              <button className="btn text-sm bg-emerald-600 hover:bg-emerald-500" onClick={() => startTaskCountdown(t)} type="button">Start</button>
+                            )}
                             <button className="btn text-sm" onClick={() => bump(t, -15)} type="button">-15m</button>
                             <button className="btn text-sm" onClick={() => bump(t, 15)} type="button">+15m</button>
                             <button 
