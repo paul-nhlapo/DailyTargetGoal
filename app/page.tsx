@@ -5,14 +5,14 @@ export default function HomePage() {
     <div className="max-w-4xl mx-auto">
       <div className="text-center mb-12">
         <h1 className="text-4xl font-bold mb-4">Daily Target Goal</h1>
-        <p className="text-xl text-slate-300 mb-8">Timebox your day into a focused 16-hour window</p>
+        <p className="text-xl text-slate-300 mb-8">Timebox your day into a focused X-hour window</p>
         <Link className="btn text-lg px-6 py-3" href="/login">Get Started →</Link>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6 mb-12">
         <div className="card text-center">
           <div className="text-4xl mb-3">📅</div>
-          <h3 className="font-semibold mb-2">16-Hour Window</h3>
+          <h3 className="font-semibold mb-2">Daily Planning</h3>
           <p className="text-sm text-slate-300">Focus your day from midnight to 4 PM. Plan what matters most.</p>
         </div>
         <div className="card text-center">
