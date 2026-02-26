@@ -22,7 +22,8 @@ export default async function SettingsPage() {
       .insert({ 
         user_id: data.user.id,
         work_start_hour: 4,
-        work_duration_hours: 16
+        work_duration_hours: 16,
+        time_zone: 'Africa/Johannesburg'
       })
       .select()
       .single()
@@ -40,6 +41,7 @@ export default async function SettingsPage() {
         <SettingsForm 
           workStartHour={prefs?.work_start_hour || 4}
           workDurationHours={prefs?.work_duration_hours || 16}
+          timeZone={prefs?.time_zone || 'Africa/Johannesburg'}
         />
       </div>
 

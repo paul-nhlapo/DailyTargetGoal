@@ -6,15 +6,18 @@ import { useRouter } from 'next/navigation'
 
 export function SettingsForm({ 
   workStartHour, 
-  workDurationHours 
+  workDurationHours,
+  timeZone,
 }: { 
   workStartHour: number
-  workDurationHours: number 
+  workDurationHours: number
+  timeZone: string
 }) {
   const router = useRouter()
   const supabase = createClient()
   const [startHour, setStartHour] = useState(workStartHour)
   const [duration, setDuration] = useState(workDurationHours)
+  const [tz, setTz] = useState(timeZone)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -30,7 +33,8 @@ export function SettingsForm({
       .from('user_preferences')
       .update({
         work_start_hour: startHour,
-        work_duration_hours: duration
+        work_duration_hours: duration,
+        time_zone: tz
       })
       .eq('user_id', user.id)
 
@@ -83,6 +87,23 @@ export function SettingsForm({
           ))}
         </select>
         <p className="text-xs text-slate-400 mt-1">How many hours can you realistically work per day?</p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-300 mb-2">
+          Time Zone
+        </label>
+        <select
+          value={tz}
+          onChange={(e) => setTz(e.target.value)}
+          className="w-full rounded-md bg-slate-800 border-2 border-slate-700 px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+        >
+          <option value="Africa/Johannesburg">Africa/Johannesburg (GMT+2)</option>
+          <option value="UTC">UTC</option>
+          <option value="Europe/London">Europe/London</option>
+          <option value="America/New_York">America/New_York</option>
+        </select>
+        <p className="text-xs text-slate-400 mt-1">Used to calculate your daily window and analytics.</p>
       </div>
 
       <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">

@@ -9,6 +9,7 @@ create table if not exists public.user_preferences (
   user_id uuid not null unique references auth.users(id) on delete cascade,
   work_start_hour integer not null default 4,
   work_duration_hours integer not null default 16,
+  time_zone text not null default 'Africa/Johannesburg',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -24,6 +24,7 @@ export type Tables = {
       user_id: string
       work_start_hour: number
       work_duration_hours: number
+      time_zone: string
       created_at: string
       updated_at: string
     }

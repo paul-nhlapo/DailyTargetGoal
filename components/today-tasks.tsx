@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { hasSupabaseEnv } from '@/lib/env'
 import { getDailyReward, getStreakBonus, getMotivationalTip } from '@/lib/rewards'
 import { requestNotificationPermission, scheduleTaskNotification } from '@/lib/notifications'
+import { formatDateLong, formatIsoDate, formatTimeShort } from '@/lib/timezone'
 
 const Task = z.object({
   id: z.string(),
@@ -28,7 +29,7 @@ const Task = z.object({
   })
 export type Task = z.infer<typeof Task>
 
-export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: string }) {
+export function TodayTasks({ startIso, endIso, timeZone }: { startIso: string, endIso: string, timeZone?: string }) {
   const demo = typeof window !== 'undefined' ? !hasSupabaseEnv() : false
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
@@ -54,18 +55,18 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
 
   const start = parseISO(startIso)
   const end = parseISO(endIso)
-  const windowDate = format(start, 'yyyy-MM-dd')
+  const windowDate = formatIsoDate(start, timeZone)
   const nextWindowStart = addDays(start, 1)
-  const nextWindowDate = format(nextWindowStart, 'yyyy-MM-dd')
+  const nextWindowDate = formatIsoDate(nextWindowStart, timeZone)
   const weekStart = startOfWeek(start, { weekStartsOn: 1 })
   const weekEnd = endOfWeek(start, { weekStartsOn: 1 })
-  const weekStartDate = format(weekStart, 'yyyy-MM-dd')
-  const weekEndDate = format(weekEnd, 'yyyy-MM-dd')
+  const weekStartDate = formatIsoDate(weekStart, timeZone)
+  const weekEndDate = formatIsoDate(weekEnd, timeZone)
   const windowClosed = currentTime >= end
 
   function normalizeTask(raw: any): Task {
     const createdAt = raw.created_at ? parseISO(raw.created_at) : start
-    const fallbackDate = format(createdAt, 'yyyy-MM-dd')
+    const fallbackDate = formatIsoDate(createdAt, timeZone)
     return {
       id: raw.id,
       user_id: raw.user_id,
@@ -86,7 +87,7 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
   }
 
   function formatWindowDate(dateStr: string) {
-    return format(parseISO(dateStr), 'PPPP')
+    return formatDateLong(parseISO(dateStr), timeZone)
   }
 
   async function load() {
@@ -700,7 +701,7 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
             Editing is locked. You can defer incomplete tasks to tomorrow or leave them in your missed list.
           </div>
           <div className="text-slate-400 text-xs mt-2">
-            Next window starts {format(nextWindowStart, 'PPPP p')}
+            Next window starts {formatDateLong(nextWindowStart, timeZone)} {formatTimeShort(nextWindowStart, timeZone)}
           </div>
         </div>
       )}
