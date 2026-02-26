@@ -809,11 +809,20 @@ export function TodayTasks({ startIso, endIso }: { startIso: string, endIso: str
                         ) : (
                           <div className="text-sm text-amber-400 mt-1">No time set</div>
                         )}
-                        {activeCountdownTaskId === t.id && t.end_time && (
-                          <div className="text-xs text-emerald-400 mt-1">
-                            Countdown: {Math.floor(activeCountdownSeconds / 60)}:{String(activeCountdownSeconds % 60).padStart(2, '0')}
-                          </div>
-                        )}
+                        {t.end_time && (() => {
+                          const remainingSeconds = activeCountdownTaskId === t.id
+                            ? activeCountdownSeconds
+                            : Math.max(0, Math.floor((parseISO(t.end_time).getTime() - currentTime.getTime()) / 1000))
+                          const inProgress = t.start_time
+                            ? currentTime >= parseISO(t.start_time) && currentTime <= parseISO(t.end_time)
+                            : false
+                          if (!inProgress && activeCountdownTaskId !== t.id) return null
+                          return (
+                            <div className="text-xs text-emerald-400 mt-1">
+                              Remaining: {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, '0')}
+                            </div>
+                          )
+                        })()}
                       </div>
                       {!windowClosed && (
                         <button className="btn bg-rose-600 hover:bg-rose-500 text-xs" onClick={() => removeTask(t.id)} type="button">Delete</button>

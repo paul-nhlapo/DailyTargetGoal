@@ -48,6 +48,8 @@ export function AnalyticsView() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [period, setPeriod] = useState<Period>('today')
   const [compact, setCompact] = useState(true)
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null)
+  const [selectedWeekStart, setSelectedWeekStart] = useState<Date | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -121,6 +123,26 @@ export function AnalyticsView() {
     return weeks
   }, [completedTasks, period, periodStart, periodEnd])
 
+  const selectedDetailTasks = useMemo(() => {
+    if (period === 'week' && selectedDay) {
+      return completedTasks.filter(t => {
+        const taskDate = getTaskDate(t)
+        return taskDate ? isSameDay(taskDate, selectedDay) : false
+      })
+    }
+    if (period === 'month' && selectedWeekStart) {
+      const weekStart = selectedWeekStart
+      const weekEnd = addDays(weekStart, 6)
+      return completedTasks.filter(t => {
+        const taskDate = getTaskDate(t)
+        return taskDate ? taskDate >= weekStart && taskDate <= weekEnd : false
+      })
+    }
+    return []
+  }, [completedTasks, period, selectedDay, selectedWeekStart])
+
+  const selectedSummary = useMemo(() => summarize(selectedDetailTasks), [selectedDetailTasks])
+
   const daysInPeriod = useMemo(() => {
     if (period === 'today') return 1
     if (period === 'week') return 7
@@ -136,19 +158,31 @@ export function AnalyticsView() {
       <div className="flex flex-wrap gap-2 items-center">
         <button 
           className={`btn ${period === 'today' ? 'bg-purple-600' : 'bg-slate-700'}`}
-          onClick={() => setPeriod('today')}
+          onClick={() => {
+            setPeriod('today')
+            setSelectedDay(null)
+            setSelectedWeekStart(null)
+          }}
         >
           Today
         </button>
         <button 
           className={`btn ${period === 'week' ? 'bg-purple-600' : 'bg-slate-700'}`}
-          onClick={() => setPeriod('week')}
+          onClick={() => {
+            setPeriod('week')
+            setSelectedDay(null)
+            setSelectedWeekStart(null)
+          }}
         >
           This Week
         </button>
         <button 
           className={`btn ${period === 'month' ? 'bg-purple-600' : 'bg-slate-700'}`}
-          onClick={() => setPeriod('month')}
+          onClick={() => {
+            setPeriod('month')
+            setSelectedDay(null)
+            setSelectedWeekStart(null)
+          }}
         >
           This Month
         </button>
@@ -186,13 +220,19 @@ export function AnalyticsView() {
           <h2 className="text-xl font-semibold mb-4">Daily Breakdown</h2>
           <div className="grid md:grid-cols-2 gap-3">
             {detailedWeek.map(day => (
-              <div key={day.date.toISOString()} className="bg-slate-800/50 rounded p-3">
+              <button
+                key={day.date.toISOString()}
+                onClick={() => setSelectedDay(day.date)}
+                className={`text-left bg-slate-800/50 rounded p-3 border ${
+                  selectedDay && isSameDay(day.date, selectedDay) ? 'border-purple-500' : 'border-transparent'
+                } hover:border-purple-400`}
+              >
                 <div className="text-sm text-slate-400">{format(day.date, 'PPPP')}</div>
                 <div className="text-lg font-semibold text-slate-200">
                   {Math.floor(day.totalMinutes / 60)}h {day.totalMinutes % 60}m
                 </div>
                 <div className="text-xs text-slate-400">{day.completed} completed</div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -203,7 +243,13 @@ export function AnalyticsView() {
           <h2 className="text-xl font-semibold mb-4">Weekly Breakdown</h2>
           <div className="grid md:grid-cols-2 gap-3">
             {detailedMonth.map(week => (
-              <div key={week.start.toISOString()} className="bg-slate-800/50 rounded p-3">
+              <button
+                key={week.start.toISOString()}
+                onClick={() => setSelectedWeekStart(week.start)}
+                className={`text-left bg-slate-800/50 rounded p-3 border ${
+                  selectedWeekStart && week.start.getTime() === selectedWeekStart.getTime() ? 'border-purple-500' : 'border-transparent'
+                } hover:border-purple-400`}
+              >
                 <div className="text-sm text-slate-400">
                   {format(week.start, 'MMM d')} - {format(week.end, 'MMM d')}
                 </div>
@@ -211,9 +257,40 @@ export function AnalyticsView() {
                   {Math.floor(week.totalMinutes / 60)}h {week.totalMinutes % 60}m
                 </div>
                 <div className="text-xs text-slate-400">{week.completed} completed</div>
-              </div>
+              </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {!compact && (selectedDay || selectedWeekStart) && (
+        <div className="card">
+          <h2 className="text-xl font-semibold mb-4">
+            {period === 'week' && selectedDay && `Insights for ${format(selectedDay, 'PPPP')}`}
+            {period === 'month' && selectedWeekStart && `Insights for week of ${format(selectedWeekStart, 'MMM d')}`}
+          </h2>
+          {selectedSummary.completedTasks === 0 ? (
+            <div className="text-slate-400">No completed tasks for this selection.</div>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-slate-800/50 rounded p-3">
+                <div className="text-sm text-slate-400">Total Time Used</div>
+                <div className="text-2xl font-semibold text-slate-200">
+                  {Math.floor(selectedSummary.totalMinutes / 60)}h {selectedSummary.totalMinutes % 60}m
+                </div>
+              </div>
+              <div className="bg-slate-800/50 rounded p-3">
+                <div className="text-sm text-slate-400">Tasks Completed</div>
+                <div className="text-2xl font-semibold text-slate-200">{selectedSummary.completedTasks}</div>
+              </div>
+              <div className="bg-slate-800/50 rounded p-3">
+                <div className="text-sm text-slate-400">Top Category</div>
+                <div className="text-2xl font-semibold text-slate-200">
+                  {selectedSummary.byCategory[0]?.category || '—'}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
